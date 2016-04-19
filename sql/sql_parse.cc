@@ -11625,30 +11625,30 @@ bool add_field_to_list(THD *thd, LEX_STRING *field_name, enum_field_types type,
         We allow only CURRENT_TIMESTAMP as function default for the TIMESTAMP or
         DATETIME types.
         */
-        // if (default_value->type() == Item::FUNC_ITEM &&
-        //     (static_cast<Item_func*>(default_value)->functype() !=
-        //     Item_func::NOW_FUNC ||
-        //     (!real_type_with_now_as_default(type)) ||
-        //     default_value->decimals != datetime_precision))
-        // {
-        //     my_error(ER_INVALID_DEFAULT, MYF(0), field_name->str);
-        //     DBUG_RETURN(1);
-        // }
-        // else if (default_value->type() == Item::NULL_ITEM)
-        // {
-        //     default_value= 0;
-        //     if ((type_modifier & (NOT_NULL_FLAG | AUTO_INCREMENT_FLAG)) ==
-        //         NOT_NULL_FLAG)
-        //     {
-        //         my_error(ER_INVALID_DEFAULT, MYF(0), field_name->str);
-        //         DBUG_RETURN(1);
-        //     }
-        // }
-        // else if (type_modifier & AUTO_INCREMENT_FLAG)
-        // {
-        //     my_error(ER_INVALID_DEFAULT, MYF(0), field_name->str);
-        //     DBUG_RETURN(1);
-        // }
+        if (default_value->type() == Item::FUNC_ITEM &&
+            (static_cast<Item_func*>(default_value)->functype() !=
+            Item_func::NOW_FUNC ||
+            (!real_type_with_now_as_default(type)) ||
+            default_value->decimals != datetime_precision))
+        {
+            my_error(ER_INVALID_DEFAULT, MYF(0), field_name->str);
+            DBUG_RETURN(1);
+        }
+        else if (default_value->type() == Item::NULL_ITEM)
+        {
+            default_value= 0;
+            if ((type_modifier & (NOT_NULL_FLAG | AUTO_INCREMENT_FLAG)) ==
+                NOT_NULL_FLAG)
+            {
+                my_error(ER_INVALID_DEFAULT, MYF(0), field_name->str);
+                DBUG_RETURN(1);
+            }
+        }
+        else if (type_modifier & AUTO_INCREMENT_FLAG)
+        {
+            my_error(ER_INVALID_DEFAULT, MYF(0), field_name->str);
+            DBUG_RETURN(1);
+        }
     }
 
     if (on_update_value &&

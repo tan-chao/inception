@@ -5013,12 +5013,10 @@ int mysql_check_create_index(THD *thd)
         source_row = mysql_fetch_row(source_res);
         while (source_row)
         {
-
             if (strcasecmp(source_row[3], "1") == 0)
             {
                 key_count++;
             }
-
             source_row = mysql_fetch_row(source_res);
         }
         //reset source_res to start
@@ -5027,8 +5025,8 @@ int mysql_check_create_index(THD *thd)
 
     if (key_count > inception_max_keys)
     {
-      my_error(ER_TOO_MANY_KEYS,MYF(0), tablename, inception_max_keys);
-          mysql_errmsg_append(thd);
+        my_error(ER_TOO_MANY_KEYS,MYF(0), tablename, inception_max_keys);
+        mysql_errmsg_append(thd);
     }
 
     if (!table_info->new_cache)

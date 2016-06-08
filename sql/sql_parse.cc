@@ -3946,7 +3946,6 @@ int mysql_execute_inception_processlist(THD *thd,bool verbose)
                 char *q= thd->strmake(tmp->query(),length);
                 thd_info->query_string= CSET_STRING(q, q ? length : 0, tmp->query_charset());
             }
-            mysql_mutex_unlock(&tmp->LOCK_thd_data);
             thd_info->start_time= tmp->start_time.tv_sec;
             thread_infos.push_back(thd_info);
         }
@@ -4070,10 +4069,12 @@ int mysql_execute_inception_osc_show(THD* thd)
 
         osc_percent_node = LIST_GET_NEXT(link, osc_percent_node);        
     }
-    mysql_mutex_unlock(&osc_mutex);
 
     if (osc_percent_node == NULL)
+    {
+        mysql_mutex_unlock(&osc_mutex);
         DBUG_RETURN(res);
+    }
 
     field_list.push_back(new Item_empty_string("DBNAME", FN_REFLEN));
     field_list.push_back(new Item_empty_string("TABLENAME", FN_REFLEN));
@@ -4085,12 +4086,12 @@ int mysql_execute_inception_osc_show(THD* thd)
     if (protocol->send_result_set_metadata(&field_list,
           Protocol::SEND_NUM_ROWS | Protocol::SEND_EOF))
     {
+        mysql_mutex_unlock(&osc_mutex);
         DBUG_RETURN(true);
     }
 
     if (osc_percent_node)
     {
-        mysql_mutex_lock(&osc_mutex); 
         protocol->prepare_for_resend();
         protocol->store(osc_percent_node->dbname, system_charset_info);
         protocol->store(osc_percent_node->tablename, system_charset_info);
@@ -4098,11 +4099,11 @@ int mysql_execute_inception_osc_show(THD* thd)
         protocol->store(osc_percent_node->percent);
         protocol->store(osc_percent_node->remaintime, system_charset_info);
         protocol->store(str_get(osc_percent_node->sql_cache_node->oscoutput), system_charset_info);
-        mysql_mutex_unlock(&osc_mutex);
 
         protocol->write();
     }
 
+    mysql_mutex_unlock(&osc_mutex);
     my_eof(thd);
     DBUG_RETURN(res);
 }
@@ -9464,6 +9465,7 @@ int mysql_generate_backup_sql_by_record_for_update_after(
     backup_sql->append(tmp_buf);
 
     backup_sql->append(");");
+    my_free(dupcharfield);
 
     DBUG_RETURN(false);
 }

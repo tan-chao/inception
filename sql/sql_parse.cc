@@ -494,6 +494,12 @@ out:
 
 //inception start
 //
+
+//to fix the bug ,thread_id from int to unsigned long
+void make_opid_time(char* tmp_buf,int exec_time,unsigned long thread_id,int seqno){
+    sprintf(tmp_buf, "\'%d_%lu_%d\'", exec_time,  thread_id, seqno);
+}
+
 int mysql_get_remote_backup_dbname(
     char* host,
     uint port,
@@ -912,8 +918,9 @@ int mysql_send_all_results(THD* thd)
 
             protocol->store(sql_cache_node->affected_rows);
 
-            sprintf(tmp_buf, "\'%ld_%d_%d\'", sql_cache_node->exec_time,
-                    (int)sql_cache_node->thread_id, (int)sql_cache_node->seqno);
+//            sprintf(tmp_buf, "\'%ld_%d_%d\'", sql_cache_node->exec_time,
+//                    (int)sql_cache_node->thread_id, (int)sql_cache_node->seqno);
+            make_opid_time(tmp_buf, sql_cache_node->exec_time, sql_cache_node->thread_id, (int)sql_cache_node->seqno);
             protocol->store(tmp_buf, system_charset_info);
 
             protocol->store(sql_cache_node->backup_dbname, system_charset_info);
@@ -5530,7 +5537,7 @@ int mysql_check_drop_column(THD *thd)
     DBUG_RETURN(FALSE);
 }
 
-int mysql_change_column_rollback(THD* thd, table_info_t* table_info, char* columnname)
+int mysql_change_column_rollback(THD* thd, table_info_t* table_info, char* columnname, char* column_change)
 {
     char*           tmp_buf;
     char            buff_space[4096];
@@ -5543,7 +5550,7 @@ int mysql_change_column_rollback(THD* thd, table_info_t* table_info, char* colum
         return 0;
 
     sprintf(tmp_buf, "SHOW FULL FIELDS FROM `%s`.`%s` where field='%s';",
-            table_info->db_name, table_info->table_name, columnname);
+            table_info->db_name, table_info->table_name, column_change);
 
     mysql = thd->get_audit_connection();
     if (mysql == NULL)
@@ -5583,13 +5590,13 @@ int mysql_change_column_rollback(THD* thd, table_info_t* table_info, char* colum
 
         if (defaults && comment)
             sprintf(tmp_buf, "CHANGE COLUMN `%s` `%s` %s %s DEFAULT '%s' COMMENT '%s' ",
-                    columnname, columnname, source_row[1], notnull, defaults, comment);
+                    columnname,column_change, source_row[1], notnull, defaults, comment);
         else if (defaults && !comment)
             sprintf(tmp_buf, "CHANGE COLUMN `%s` `%s` %s %s DEFAULT '%s'",
-                    columnname, columnname, source_row[1], notnull, defaults);
+                    columnname,column_change, source_row[1], notnull, defaults);
         else if (!defaults && comment)
             sprintf(tmp_buf, "CHANGE COLUMN `%s` `%s` %s %s COMMENT '%s'",
-                    columnname, columnname, source_row[1], notnull, comment);
+                    columnname,column_change, source_row[1], notnull, comment);
         str_append(&thd->ddl_rollback, tmp_buf);
         str_append(&thd->ddl_rollback, ",");
         if (tmp_buf != buff_space)
@@ -5663,7 +5670,7 @@ int mysql_check_change_column(THD *thd)
             mysql_field_check(thd, field, table_info->table_name);
             mysql_check_column_default(thd, field->def, field->flags, 
                 field_info, field->field_name, field->sql_type);
-            mysql_change_column_rollback(thd, table_info, (char*)field->field_name);
+            mysql_change_column_rollback(thd, table_info, (char*)field->field_name,(char*)field->change);
         }
     }
 
@@ -9182,9 +9189,11 @@ int mysql_execute_backup_info_insert_sql(
     sprintf(tmp_buf, "`%s`.`%s` VALUES (", dbname, REMOTE_BACKUP_TABLE);
     backup_sql->append(tmp_buf);
 
-    sprintf(tmp_buf, "\'%ld_%d_%d\',", sql_cache_node->exec_time,
-            (int)sql_cache_node->thread_id, (int)sql_cache_node->seqno);
+//    sprintf(tmp_buf, "\'%ld_%d_%d\',", sql_cache_node->exec_time,
+//            (int)sql_cache_node->thread_id, (int)sql_cache_node->seqno);
+    make_opid_time(tmp_buf, sql_cache_node->exec_time, sql_cache_node->thread_id, (int)sql_cache_node->seqno);
     backup_sql->append(tmp_buf);
+    backup_sql->append(",");
     sprintf(tmp_buf, "\'%s\',", sql_cache_node->start_binlog_file);
     backup_sql->append(tmp_buf);
     sprintf(tmp_buf, "%d,", sql_cache_node->start_binlog_pos);
@@ -9402,7 +9411,8 @@ int mysql_generate_field_insert_values(
     }
 
     backup_sql->append("',");
-    sprintf(tmp_buf, "\'%d_%d_%d\'", (int)mi->exec_time, (int)mi->thread_id, (int)mi->seqno);
+//    sprintf(tmp_buf, "\'%d_%d_%d\'", (int)mi->exec_time, (int)mi->thread_id, (int)mi->seqno);
+    make_opid_time(tmp_buf, mi->exec_time, mi->thread_id, (int)mi->seqno);
     backup_sql->append(tmp_buf);
 
     return 0;
@@ -9461,7 +9471,9 @@ int mysql_generate_backup_sql_by_record_for_update_after(
     backup_sql->append(dupcharfield);
     backup_sql->append("',");
 
-    sprintf(tmp_buf, "\'%d_%d_%d\'", (int)mi->exec_time, (int)mi->thread_id, (int)mi->seqno);
+    //sprintf(tmp_buf, "\'%d_%d_%d\'", (int)mi->exec_time, (int)mi->thread_id, (int)mi->seqno);
+    make_opid_time(tmp_buf, mi->exec_time, mi->thread_id, (int)mi->seqno);
+
     backup_sql->append(tmp_buf);
 
     backup_sql->append(");");
@@ -9938,7 +9950,9 @@ int mysql_generate_backup_field_insert_values_for_ddl(
     backup_sql->append(dupcharfield);
 
     backup_sql->append("',");
-    sprintf(tmp_buf, "\'%d_%d_%d\'", (int)mi->exec_time, (int)mi->thread_id, (int)mi->seqno);
+//    sprintf(tmp_buf, "\'%d_%d_%d\'", (int)mi->exec_time, (int)mi->thread_id, (int)mi->seqno);
+    make_opid_time(tmp_buf, mi->exec_time, mi->thread_id, (int)mi->seqno);
+
     backup_sql->append(tmp_buf);
 
     return 0;

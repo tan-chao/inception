@@ -314,7 +314,10 @@ str_deinit(str_t* str)
         return;
 
     if (str->str != str->str_buf)
+    {
         free(str->str);
+        str->str = str->str_buf;
+    }
 }
 
 char*
@@ -10626,7 +10629,9 @@ int mysql_execute_statement(
 
     sql_cache_node->affected_rows = mysql_affected_rows(mysql);
 
-    print_warnings(thd, mysql, sql_cache_node);
+    //print the warnings only when execute SQL directly
+    if (!sql_cache_node->use_osc)
+        print_warnings(thd, mysql, sql_cache_node);
 
     if (mysql_fetch_thread_id(mysql, &sql_cache_node->thread_id))
         DBUG_RETURN(true);
@@ -10770,7 +10775,9 @@ int mysql_sleep(THD* thd)
     {
         struct timespec abstime;
         set_timespec_nsec(abstime, thd->thd_sinfo->sleep_nms * 1000000ULL);
+        mysql_mutex_lock(&thd->sleep_lock);
         mysql_cond_timedwait(&thd->sleep_cond, &thd->sleep_lock, &abstime);
+        mysql_mutex_unlock(&thd->sleep_lock);
     }
 
     return false;
@@ -11306,6 +11313,7 @@ int mysql_deinit_sql_cache(THD* thd)
         while (split_cache_node) {
 
             split_cache_node_next = LIST_GET_NEXT(link, split_cache_node);
+            str_deinit(&(split_cache_node->sql_statements));
             LIST_REMOVE(link, thd->split_cache->field_lst, split_cache_node);
             my_free(split_cache_node);
 

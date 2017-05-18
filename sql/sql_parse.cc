@@ -1881,6 +1881,8 @@ int mysql_get_err_level_by_errno(THD *   thd)
     case ER_TOO_MANY_KEY_PARTS:
     case ER_UDPATE_TOO_MUCH_ROWS:
     case ER_TOO_MANY_KEYS:
+    case ER_PK_TOO_MANY_PARTS:
+    case ER_PK_COLS_NOT_INT:
     case ER_TIMESTAMP_DEFAULT:
     case ER_CANT_DROP_FIELD_OR_KEY:
     case ER_CHAR_TO_VARCHAR_LEN:
@@ -2030,6 +2032,12 @@ mysql_check_inception_variables(
             return false;
         break;
 
+    case ER_PK_COLS_NOT_INT:
+        if (inception_enable_pk_columns_only_int)
+            return true;
+        else 
+            return false;
+        break;
 
     case ER_TABLE_MUST_HAVE_COMMENT:
         if (inception_check_table_comment)
@@ -2695,8 +2703,7 @@ mysql_convert_desc_to_table_info(
     DBUG_ENTER("mysql_convert_desc_to_table_info");
 
     //free memory
-    table_info = (table_info_t*)malloc(sizeof(table_info_t));
-    memset(table_info, 0, sizeof(table_info_t));
+    table_info = (table_info_t*)my_malloc(sizeof(table_info_t), MY_ZEROFILL);
     LIST_INIT(table_info->field_lst);
 
     strcpy(table_info->table_name, tablename);
@@ -2706,9 +2713,7 @@ mysql_convert_desc_to_table_info(
     while (source_row)
     {
         //free memory
-        field_info = (field_info_t*)malloc(sizeof(field_info_t));
-
-        memset(field_info, 0, sizeof(field_info_t));
+        field_info = (field_info_t*)my_malloc(sizeof(field_info_t), MY_ZEROFILL);
         strcpy(field_info->field_name, source_row[0]);
         if (strcasecmp(source_row[3], "YES") == 0)
             field_info->nullable = true;
@@ -2727,7 +2732,14 @@ mysql_convert_desc_to_table_info(
         if (source_row[2] != NULL)
             field_info->charset = get_charset(get_collation_number(source_row[2]),MYF(0));
 
-        strcpy(field_info->data_type, source_row[1]);
+        if (!strncasecmp("set(", source_row[1], 4))
+            strcpy(field_info->data_type, "set");
+        else if (!strncasecmp("enum(", source_row[1], 5))
+            strcpy(field_info->data_type, "enum");
+        else if (strlen(source_row[1]) > FN_LEN)
+            strcpy(field_info->data_type, "UNKNOWN");
+        else
+            strcpy(field_info->data_type, source_row[1]);
 
         LIST_ADD_LAST(link, table_info->field_lst, field_info);
         source_row = mysql_fetch_row(source_res);
@@ -4960,6 +4972,14 @@ int mysql_check_create_index(THD *thd)
 
         uint keymaxlen=0;
         mysql_check_index_attribute(thd, key, table_info->table_name);
+        if (key->type == Key::PRIMARY && 
+            key->columns.elements > inception_max_primary_key_parts)
+        {
+            my_error(ER_PK_TOO_MANY_PARTS, MYF(0), 
+                table_info->db_name, table_info->table_name, 
+                inception_max_primary_key_parts);
+                mysql_errmsg_append(thd);
+        }
 
         key_count++;
 
@@ -4985,6 +5005,16 @@ int mysql_check_create_index(THD *thd)
                         keymaxlen += field_node->max_length;
                     }
 
+                    if (key->type == Key::PRIMARY &&
+                        field_node->real_type != MYSQL_TYPE_INT24 &&
+                        field_node->real_type != MYSQL_TYPE_LONGLONG &&
+                        field_node->real_type != MYSQL_TYPE_LONG &&
+                        inception_enable_pk_columns_only_int)
+                    {
+                        my_error(ER_PK_COLS_NOT_INT, MYF(0), col1->field_name.str, 
+                            table_info->db_name, table_info->table_name);
+                              mysql_errmsg_append(thd);
+                    }
                     found = TRUE;
                     break;
                 }
@@ -7855,7 +7885,8 @@ int mysql_get_create_sql_backup_table(
     create_sql->append("tablename VARCHAR(64),");
     create_sql->append("port INT,");
     create_sql->append("time TIMESTAMP,");
-    create_sql->append("type VARCHAR(20)");
+    create_sql->append("type VARCHAR(20),");
+    create_sql->append("PRIMARY KEY(opid_time)");
 
     create_sql->append(")ENGINE INNODB DEFAULT CHARSET UTF8;");
 
@@ -8112,7 +8143,7 @@ int mysql_make_sure_backupdb_table_exist(THD *thd, sql_cache_node_t* sql_cache_n
 
     DBUG_ENTER("mysql_make_sure_backupdb_table_exist");
 
-    if (sql_cache_node->table_info->remote_existed)
+    if (sql_cache_node->table_info == NULL || sql_cache_node->table_info->remote_existed)
         DBUG_RETURN(FALSE);
 
     if (mysql_get_remote_backup_dbname(thd->thd_sinfo->host, thd->thd_sinfo->port,
@@ -9899,8 +9930,19 @@ int mysql_alloc_record(table_info_t* table_info, MYSQL *mysql)
         field_info->flags = field->flags;
         field_info->decimals = field->decimals;
 
+        field_info->field_length =field->length;
+        if (field->length > MAX_DATETIME_WIDTH &&
+            field_info->real_type == MYSQL_TYPE_DATETIME)
+            field_info->real_type = MYSQL_TYPE_DATETIME2;
+        if (field->length > MAX_DATETIME_WIDTH &&
+            field_info->real_type == MYSQL_TYPE_TIMESTAMP)
+            field_info->real_type = MYSQL_TYPE_TIMESTAMP2;
+        if (field->length > MAX_TIME_WIDTH &&
+            field_info->real_type == MYSQL_TYPE_TIME)
+            field_info->real_type = MYSQL_TYPE_TIME2;
+
         field_info->charsetnr = field->charsetnr;
-        field_info->max_length = calc_pack_length(field->type,field->length);
+        field_info->max_length = calc_pack_length(field_info->real_type,field->length);
 
         //调整最大长度，根据表定义的字符集来调整
         if (field_info->charset)
@@ -9912,7 +9954,7 @@ int mysql_alloc_record(table_info_t* table_info, MYSQL *mysql)
             field_info->charsetnr = field_info->charset->number;
         }
 
-        max_length += calc_pack_length(field->type,field_info->max_length);
+        max_length += calc_pack_length(field_info->real_type,field_info->max_length);
         mysql_prepare_field(field_info);
 
         field_info = LIST_GET_NEXT(link, field_info);
@@ -9927,7 +9969,7 @@ int mysql_alloc_record(table_info_t* table_info, MYSQL *mysql)
     {
         field = &source_res->fields[i];
         field_info->field_ptr = table_info->record + max_length;
-        max_length += calc_pack_length(field->type,field_info->max_length);
+        max_length += calc_pack_length(field_info->real_type,field_info->max_length);
         field_info = LIST_GET_NEXT(link, field_info);
     }
 
@@ -10854,6 +10896,9 @@ mysql_backup_sql(
     sql_cache_node_t* sql_cache_node
 )
 {
+    if (sql_cache_node->table_info == NULL)
+        return FALSE;
+
     if (mysql_sql_cache_is_valid_for_ddl(sql_cache_node) &&
         mysql_backup_single_ddl_statement(thd, mi, mysql, sql_cache_node))
     {

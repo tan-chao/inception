@@ -9,5 +9,7 @@ jobs:
     
     steps:
     - uses: actions/checkout@master
+    - name: install build essential
+      run: apt-get update && apt-get install bison
     - name: build
       run: ./inception_build.sh linux

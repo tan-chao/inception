@@ -10,6 +10,6 @@ jobs:
     steps:
     - uses: actions/checkout@master
     - name: install build essential
-      run: sudo apt-get -y update  && sudo apt-get -y install bison
+      run: sudo apt-get -y update  && sudo apt-get -y install bison libmysqld-dev
     - name: build
       run: ./inception_build.sh linux

@@ -10,8 +10,11 @@ jobs:
     steps:
     - uses: actions/checkout@master
     - name: install build essential
-      run: sudo apt-get -y update  && sudo apt-get -y install wget tar gzip libmysqld-dev libncurses5-dev
+      run: sudo apt-get -y update  && sudo apt-get -y install libmysqld-dev libncurses5-dev
     - name: install bison < 2.6
-      run: wget http://ftp.gnu.org/gnu/bison/bison-2.5.1.tar.gz && tar zxvf bison-2.5.1.tar.gz && cd bison-2.5.1 && ./configure && make && sudo make install
+      run: wget http://ftp.gnu.org/gnu/bison/bison-2.5.1.tar.gz && \
+      tar zxvf bison-2.5.1.tar.gz && \
+      cd bison-2.5.1 && \
+      ./configure && make && sudo make install
     - name: build
       run: ./inception_build.sh debug

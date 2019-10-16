@@ -17,4 +17,4 @@ jobs:
       cd bison-2.5.1 && \
       ./configure && make && sudo make install
     - name: build
-      run: ./inception_build.sh debug
+      run: ./inception_build.sh linux
